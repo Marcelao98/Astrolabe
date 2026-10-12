@@ -126,3 +126,12 @@ astrolabe/
 ## 11. Projetos relacionados (pesquisa)
 
 Analisadores de disco (WinDirStat, WizTree, DaisyDisk, MacDirStat, Diskmap), organizadores com IA em CLI (filemaid, Deep Organizer, LLM File Organizer), Filerev para Google Drive, grafos de arquivos para código (Codeflower, CodeGraphy) e indexadores (Diskover). Nenhum combina galáxia + múltiplas fontes + agente dentro do visual + lentes em linguagem natural — esse é o espaço do Astrolabe.
+
+
+## Atualização (implementação)
+
+- O renderizador é **Canvas 2D** (não PixiJS): testável em Node com Skia, sem WebGL, e rápido o bastante para ~40 mil nós com recorte, sprites em cache e splat de pixels.
+- O gerador de amostra mora em `packages/core`.
+- Fluxo de ações: `Astra (ferramenta propose_plan)` → `Plan` → cartão de aprovação (UI) → `Executor` (preflight + quarentena/lixeira + log) → `undo`.
+- Fontes: `sample` (memória), `local` (`apps/local-agent`, HTTP + token em 127.0.0.1), `drive` (`packages/drive`, API v3 direto do navegador, token só em memória).
+- A API da Astra recebe o mapa ativo por `PUT /api/tree` (somente metadados) para a IA ver o mesmo que o usuário.

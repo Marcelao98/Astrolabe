@@ -25,7 +25,7 @@ import { GalaxyCanvas, type GalaxyHandle, type HoverInfo } from "./components/Ga
 import { AstraDock } from "./components/AstraDock";
 import { createScene, homeIndex, selectionBytes } from "./data";
 import { AstraClient } from "./astra/client";
-import { AgentConnection, type Runner } from "./astra/agent";
+import { type Runner } from "./astra/agent";
 import { ConnectDialog } from "./components/ConnectDialog";
 import { PlanCard, type PlanPhase } from "./components/PlanCard";
 import { applyResults, createDemoExecutor } from "./astra/fsdemo";
@@ -54,7 +54,7 @@ export function App() {
   const baseNodes = useRef<FsNode[]>([]);
   const [customLensState, setCustomLens] = useState<Lens | null>(null);
   const astra = useMemo(() => new AstraClient(), []);
-  const [source, setSource] = useState<{ label: string; conn: AgentConnection | null }>({ label: "Amostra · C: (dados de exemplo)", conn: null });
+  const [source, setSource] = useState<{ label: string; conn: Runner | null }>({ label: "Amostra · C: (dados de exemplo)", conn: null });
   const [connectOpen, setConnectOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [, bump] = useReducer((n: number) => n + 1, 0);
@@ -105,11 +105,10 @@ export function App() {
   });
 
   const runner = (): Runner =>
-    source.conn
-      ? { demo: false, execute: (p, ap) => source.conn!.execute(p, ap), undo: (p, l) => source.conn!.undo(p, l) }
-      : { demo: true, execute: (p, ap) => executor.current!.execute(p, ap), undo: (p, l) => executor.current!.undo(p, l) };
+    source.conn ??
+    { demo: true, execute: (p, ap) => executor.current!.execute(p, ap), undo: (p, l) => executor.current!.undo(p, l) };
 
-  const loadSource = (conn: AgentConnection | null, label: string, nodes: FsNode[], now: number) => {
+  const loadSource = (conn: Runner | null, label: string, nodes: FsNode[], now: number) => {
     setPlan(null);
     setSource({ label, conn });
     if (!conn) executor.current = createDemoExecutor(nodes);

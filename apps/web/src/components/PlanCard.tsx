@@ -69,7 +69,7 @@ export function PlanCard({ plan, demo, phase, log, onPreview, onApprove, onUndo,
           )}
           <p className="plan-note">
             {hasTrash ? "Itens na lixeira podem ser restaurados pela lixeira do sistema. " : "Nada é apagado de verdade: vai para a quarentena e dá para desfazer. "}
-            {demo ? "Modo demonstração: só a amostra muda." : "Isto muda arquivos de verdade no seu computador."}
+            {demo ? "Modo demonstração: só a amostra muda." : "Isto muda os seus arquivos de verdade."}
           </p>
           <div className="plan-actions">
             <button onClick={() => onPreview(chosen.map((a) => a.id))}>Ver no mapa</button>

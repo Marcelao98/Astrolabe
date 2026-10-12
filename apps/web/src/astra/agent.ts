@@ -3,6 +3,7 @@ import type { FsNode } from "@astrolabe/core";
 
 /** Conexão com o agente local (roda no PC do usuário, em 127.0.0.1, protegido por token). */
 export class AgentConnection {
+  readonly demo = false;
   constructor(
     readonly url: string,
     private token: string,
