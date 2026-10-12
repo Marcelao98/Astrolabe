@@ -1,9 +1,8 @@
-import { buildTree, generateSample, SAMPLE_NOW } from "@astrolabe/core";
+import { buildTree, generateSample, SAMPLE_NOW, type FsNode } from "@astrolabe/core";
 import { GalaxyScene } from "@astrolabe/render";
 
-export function createSampleScene(): GalaxyScene {
-  const tree = buildTree(generateSample());
-  const scene = new GalaxyScene(tree, SAMPLE_NOW);
+export function createScene(nodes: FsNode[]): GalaxyScene {
+  const scene = new GalaxyScene(buildTree(nodes), SAMPLE_NOW);
   scene.openDepth = 99;
   scene.relayout();
   return scene;
@@ -40,4 +39,8 @@ export function selectionBytes(scene: GalaxyScene): number {
     if (!covered) sum += tree.nodes[i]!.kind === "folder" ? tree.total[i]! : tree.nodes[i]!.size;
   }
   return sum;
+}
+
+export function createSampleScene(): GalaxyScene {
+  return createScene(generateSample());
 }

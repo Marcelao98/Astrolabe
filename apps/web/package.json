@@ -14,7 +14,9 @@
     "@astrolabe/render": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.15",
+    "@astrolabe/actions": "workspace:*",
+    "@astrolabe/agents": "workspace:*"
   },
   "devDependencies": {
     "@types/d3-quadtree": "^3.0.6",

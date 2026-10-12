@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useReducer, useRef, useState } from "react";
 import {
+  generateSample,
+  customLens,
+  subtreeOf,
+  type FsNode,
+  type Lens,
   CATEGORY_COLOR,
   CATEGORY_LABEL_PT,
   MB,
@@ -17,7 +22,11 @@ import {
 import type { Camera } from "@astrolabe/render";
 import { GalaxyCanvas, type GalaxyHandle, type HoverInfo } from "./components/GalaxyCanvas";
 import { AstraDock } from "./components/AstraDock";
-import { createSampleScene, homeIndex, selectionBytes } from "./data";
+import { createScene, homeIndex, selectionBytes } from "./data";
+import { PlanCard, type PlanPhase } from "./components/PlanCard";
+import { applyResults, createDemoExecutor } from "./astra/fsdemo";
+import { buildPlan, type ExecutionLog, type Plan } from "@astrolabe/actions";
+import type { AstraAction, AstraContext } from "@astrolabe/agents";
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 const DAY = 86_400_000;
@@ -30,7 +39,17 @@ const SCALES: { id: ScaleMode; label: string; hint: string }[] = [
 ];
 
 export function App() {
-  const [scene] = useState(createSampleScene);
+  const nodesRef = useRef<FsNode[] | null>(null);
+  nodesRef.current ??= generateSample();
+  const [scene, setScene] = useState(() => createScene(nodesRef.current!));
+  const executor = useRef<ReturnType<typeof createDemoExecutor> | null>(null);
+  executor.current ??= createDemoExecutor(nodesRef.current);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [phase, setPhase] = useState<PlanPhase>("review");
+  const [runLog, setRunLog] = useState<ExecutionLog | null>(null);
+  const baseNodes = useRef<FsNode[]>([]);
+  const [customLensState, setCustomLens] = useState<Lens | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const galaxy = useRef<GalaxyHandle>(null);
   const [lensId, setLensId] = useState("type");
@@ -65,10 +84,142 @@ export function App() {
     bump();
   };
 
+  const say = (t: string) => {
+    setToast(t);
+    setTimeout(() => setToast((c) => (c === t ? null : c)), 3500);
+  };
+
+  const getContext = (): AstraContext => ({
+    tree: scene.tree,
+    now: scene.now,
+    dup: scene.dup,
+    selection: [...scene.selection].map((i) => scene.tree.nodes[i]!.id),
+    sourceLabel: "Amostra",
+  });
+
+  const rebuild = (nodes: FsNode[]) => {
+    nodesRef.current = nodes;
+    const next = createScene(nodes);
+    next.setScale(scene.scale);
+    const lens = builtinLenses.find((l) => l.id === lensId) ?? builtinLenses[0]!;
+    next.setLens(lens);
+    if (!builtinLenses.some((l) => l.id === lensId)) {
+      setLensId("type");
+      setCustomLens(null);
+    }
+    setScene(next);
+    setTimeout(() => galaxy.current?.redraw(), 0);
+  };
+
+  const showPlan = (p: Plan) => {
+    setPlan(p);
+    setPhase("review");
+    setRunLog(null);
+  };
+
+  const previewPlan = (ids: string[]) => {
+    if (!plan) return;
+    const want = new Set(ids);
+    const hit = new Set<number>();
+    for (const a of plan.actions) {
+      const i = tree.index.get(a.nodeId);
+      if (i === undefined || !want.has(a.id)) continue;
+      for (const j of subtreeOf(tree, i)) hit.add(j);
+    }
+    scene.setFocus([...hit]);
+    const first = plan.actions.find((a) => want.has(a.id));
+    const fi = first && tree.index.get(first.nodeId);
+    if (fi !== undefined) galaxy.current?.flyTo(fi);
+    redraw();
+  };
+
+  const approvePlan = async (ids: string[]) => {
+    if (!plan || !executor.current) return;
+    setPhase("running");
+    // A aprovação nasce aqui, num clique do usuário; a Astra não tem como criá-la.
+    const log = await executor.current.execute(plan, { planId: plan.id, approvedAt: Date.now(), onlyActionIds: ids });
+    baseNodes.current = nodesRef.current!;
+    setRunLog(log);
+    setPhase("done");
+    rebuild(applyResults(nodesRef.current!, plan, log));
+    say(`${log.results.filter((r) => r.status === "done").length} ações concluídas`);
+  };
+
+  const undoPlan = async () => {
+    if (!plan || !runLog || !executor.current) return;
+    const undone = await executor.current.undo(plan, runLog);
+    setRunLog(undone);
+    rebuild(applyResults(baseNodes.current, plan, undone));
+    say("Desfeito: tudo voltou ao lugar");
+  };
+
+  const closePlan = () => {
+    setPlan(null);
+    scene.setFocus(null);
+    setCategory(null);
+    redraw();
+  };
+
+  const quickPlan = (kind: "quarantine" | "trash") => {
+    const ids = [...scene.selection].map((i) => tree.nodes[i]!.id);
+    const p = buildPlan("selection", { ids, kind }, { tree, now: scene.now, dup: scene.dup });
+    showPlan(p);
+  };
+
+  const onAstra = (a: AstraAction) => {
+    switch (a.type) {
+      case "setLens":
+        chooseLens(a.lens);
+        break;
+      case "setScale":
+        chooseScale(a.mode);
+        break;
+      case "focus": {
+        const found = queryNodes(tree, a.query, { now: scene.now, dup: scene.dup });
+        scene.setFocus(found.flatMap((i) => (tree.nodes[i]!.kind === "folder" ? subtreeOf(tree, i) : [i])));
+        setCategory(null);
+        redraw();
+        break;
+      }
+      case "clearFocus":
+        scene.setFocus(null);
+        redraw();
+        break;
+      case "flyTo": {
+        const i = tree.index.get(a.id);
+        if (i !== undefined) galaxy.current?.flyTo(i, { select: true });
+        break;
+      }
+      case "select": {
+        scene.selection = new Set(a.ids.map((id) => tree.index.get(id)).filter((i): i is number => i !== undefined));
+        redraw();
+        break;
+      }
+      case "customLens": {
+        const lens = customLens(a.id, a.label, a.description, a.legend);
+        const labels = new Map<number, { label: string; confidence: number }>();
+        for (const l of a.labels) {
+          const i = tree.index.get(l.id);
+          if (i !== undefined) labels.set(i, { label: l.label, confidence: l.confidence });
+        }
+        scene.setFocus(null);
+        scene.setLens(lens, labels);
+        setCustomLens(lens);
+        setLensId(lens.id);
+        redraw();
+        break;
+      }
+      case "plan":
+        showPlan(a.plan);
+        break;
+    }
+  };
+
   const chooseLens = (id: string) => {
     const lens = builtinLenses.find((l) => l.id === id);
     if (!lens) return;
     setLensId(id);
+    setCustomLens(null);
     setCategory(null);
     scene.setFocus(null);
     scene.setLens(lens);
@@ -146,7 +297,7 @@ export function App() {
         </div>
 
         <div className="group" role="group" aria-label="Lente">
-          {builtinLenses.map((l) => (
+          {[...builtinLenses, ...(customLensState ? [customLensState] : [])].map((l) => (
             <button key={l.id} className={`chip ${lensId === l.id ? "on" : ""}`} onClick={() => chooseLens(l.id)} title={l.description}>
               {l.label}
             </button>
@@ -288,9 +439,14 @@ export function App() {
             {sel.length === 1 && tree.nodes[sel[0]!]!.kind === "folder" && (
               <button onClick={() => { scene.toggle(sel[0]!); redraw(); }}>{scene.isOpen(sel[0]!) ? "Colapsar" : "Expandir"}</button>
             )}
+            <button onClick={() => quickPlan("quarantine")} title="Reversível: vai para a quarentena e dá para desfazer">Quarentena…</button>
+            <button className="danger" onClick={() => quickPlan("trash")} title="Envia à lixeira do sistema">Lixeira…</button>
           </div>
         </div>
       )}
+
+      {plan && <PlanCard plan={plan} phase={phase} log={runLog} onPreview={previewPlan} onApprove={(ids) => void approvePlan(ids)} onUndo={() => void undoPlan()} onClose={closePlan} />}
+      {toast && <div className="toast glass">{toast}</div>}
 
       {/* tooltip */}
       {hover && hoverNode && (
@@ -318,7 +474,7 @@ export function App() {
         <span>{zoom ? `${zoom >= 1 ? zoom.toFixed(1) : zoom.toFixed(3)}×` : ""}</span>
       </div>
 
-      <AstraDock />
+      <AstraDock getContext={getContext} onAction={onAstra} />
     </div>
   );
 }
