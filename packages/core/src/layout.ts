@@ -20,8 +20,11 @@ export interface Layout {
   r: Float32Array;
   /** Raio do sistema inteiro (corpo + órbitas dos filhos). */
   sys: Float32Array;
+  /** 1 se o nó é desenhado e clicável. */
   visible: Uint8Array;
   open: Uint8Array;
+  /** 1 para pastas "transparentes" (um único filho-pasta): ficam na posição do filho e não são desenhadas. */
+  compressed: Uint8Array;
   folderSpec: ScaleSpec;
   fileSpec: ScaleSpec;
   maxFileSize: number;
@@ -40,13 +43,20 @@ function spin(i: number): number {
 export function makeSpecs(tree: Tree, mode: ScaleMode): { folderSpec: ScaleSpec; fileSpec: ScaleSpec; maxFileSize: number } {
   let maxFolder = MB * 2;
   let maxFile = KB * 2;
+  const totals: number[] = [];
   for (const i of tree.order) {
     const nd = tree.nodes[i]!;
     if (nd.kind === "file") maxFile = Math.max(maxFile, nd.size);
-    else if (tree.parent[i]! >= 0) maxFolder = Math.max(maxFolder, tree.total[i]!);
+    else if (tree.parent[i]! >= 0) {
+      maxFolder = Math.max(maxFolder, tree.total[i]!);
+      if (tree.total[i]! > 0) totals.push(tree.total[i]!);
+    }
   }
+  totals.sort((a, b) => a - b);
+  const p5 = totals.length ? totals[Math.floor(totals.length * 0.05)]! : MB;
+  const folderMin = Math.min(maxFolder / 8, Math.max(64 * KB, p5));
   return {
-    folderSpec: { mode, domainMin: MB, domainMax: maxFolder, rMin: 4, rMax: 36 },
+    folderSpec: { mode, domainMin: folderMin, domainMax: maxFolder, rMin: 4, rMax: 36 },
     fileSpec: { mode, domainMin: KB, domainMax: maxFile, rMin: 0.9, rMax: 9 },
     maxFileSize: maxFile,
   };
@@ -67,6 +77,8 @@ export function computeLayout(tree: Tree, opts: LayoutOptions): Layout {
   const sys = new Float32Array(n);
   const visible = new Uint8Array(n);
   const open = new Uint8Array(n);
+  const compressed = new Uint8Array(n);
+  const present = new Uint8Array(n);
   const lx = new Float32Array(n);
   const ly = new Float32Array(n);
 
@@ -78,12 +90,20 @@ export function computeLayout(tree: Tree, opts: LayoutOptions): Layout {
     return tree.depth[i]! < opts.openDepth;
   };
 
-  // 1) visibilidade (top-down) e raio do corpo
+  // 1) presença (top-down), compressão de cadeias e raio do corpo
   for (const i of tree.order) {
     const p = tree.parent[i]!;
-    visible[i] = p < 0 || (visible[p] && open[p]) ? 1 : 0;
-    if (!visible[i]) continue;
+    present[i] = p < 0 || (present[p] && open[p]) ? 1 : 0;
+    if (!present[i]) continue;
     const nd = tree.nodes[i]!;
+    const kids = tree.children[i]!;
+    compressed[i] =
+      p >= 0 && nd.kind === "folder" && kids.length === 1 && tree.nodes[kids[0]!]!.kind === "folder" ? 1 : 0;
+    visible[i] = compressed[i] ? 0 : 1;
+    if (compressed[i]) {
+      open[i] = 1;
+      continue;
+    }
     r[i] = nd.kind === "folder" ? radiusFor(tree.total[i]!, folderSpec) : radiusFor(nd.size, fileSpec);
     open[i] = isOpen(i) ? 1 : 0;
   }
@@ -128,7 +148,14 @@ export function computeLayout(tree: Tree, opts: LayoutOptions): Layout {
 
   for (let k = tree.order.length - 1; k >= 0; k--) {
     const i = tree.order[k]!;
-    if (!visible[i]) continue;
+    if (!present[i]) continue;
+    if (compressed[i]) {
+      const c = tree.children[i]![0]!;
+      sys[i] = sys[c]!;
+      lx[c] = 0;
+      ly[c] = 0;
+      continue;
+    }
     if (!open[i]) {
       sys[i] = r[i]!;
       continue;
@@ -153,12 +180,12 @@ export function computeLayout(tree: Tree, opts: LayoutOptions): Layout {
 
   // 4) posições absolutas (top-down)
   for (const i of tree.order) {
-    if (!visible[i] || !open[i]) continue;
+    if (!present[i] || !open[i]) continue;
     for (const c of tree.children[i]!) {
       x[c] = x[i]! + lx[c]!;
       y[c] = y[i]! + ly[c]!;
     }
   }
 
-  return { x, y, r, sys, visible, open, folderSpec, fileSpec, maxFileSize, extent };
+  return { x, y, r, sys, visible, open, compressed, folderSpec, fileSpec, maxFileSize, extent };
 }

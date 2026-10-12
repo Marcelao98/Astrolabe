@@ -160,7 +160,10 @@ describe("layout orbital", () => {
     const hidden = tree.order.filter((i) => !layout.visible[i]).length;
     expect(hidden).toBeGreaterThan(0);
     const open = computeLayout(tree, { scale: "log", openDepth: 99 });
-    expect(open.visible.reduce((s, v) => s + v, 0)).toBe(tree.nodes.length);
+    const shown = open.visible.reduce((s, v) => s + v, 0);
+    const merged = open.compressed.reduce((s, v) => s + v, 0);
+    expect(merged).toBeGreaterThan(0); // cadeias de pasta única viram "transparentes"
+    expect(shown + merged).toBe(tree.nodes.length);
   });
 
   it("calcula o layout de ~50 mil nós em tempo razoável", () => {

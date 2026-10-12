@@ -1,0 +1,19 @@
+{
+  "name": "@astrolabe/render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@astrolabe/core": "workspace:*",
+    "d3-quadtree": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/d3-quadtree": "^3.0.6"
+  }
+}
