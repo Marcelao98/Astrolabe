@@ -6,6 +6,7 @@ export type PlanPhase = "review" | "running" | "done";
 
 interface Props {
   plan: Plan;
+  demo: boolean;
   phase: PlanPhase;
   log: ExecutionLog | null;
   onPreview(actionIds: string[]): void;
@@ -17,7 +18,7 @@ interface Props {
 const KIND_LABEL = { move: "Mover", quarantine: "Quarentena", trash: "Lixeira" } as const;
 
 /** Revisão do plano da Astra: nada acontece sem este botão de aprovação. */
-export function PlanCard({ plan, phase, log, onPreview, onApprove, onUndo, onClose }: Props) {
+export function PlanCard({ plan, demo, phase, log, onPreview, onApprove, onUndo, onClose }: Props) {
   const [off, setOff] = useState<Set<string>>(new Set());
   const [all, setAll] = useState(false);
   const chosen = useMemo(() => plan.actions.filter((a) => !off.has(a.id)), [plan, off]);
@@ -68,7 +69,7 @@ export function PlanCard({ plan, phase, log, onPreview, onApprove, onUndo, onClo
           )}
           <p className="plan-note">
             {hasTrash ? "Itens na lixeira podem ser restaurados pela lixeira do sistema. " : "Nada é apagado de verdade: vai para a quarentena e dá para desfazer. "}
-            Modo demonstração: só a amostra muda.
+            {demo ? "Modo demonstração: só a amostra muda." : "Isto muda arquivos de verdade no seu computador."}
           </p>
           <div className="plan-actions">
             <button onClick={() => onPreview(chosen.map((a) => a.id))}>Ver no mapa</button>

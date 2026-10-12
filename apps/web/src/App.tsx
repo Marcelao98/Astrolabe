@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useReducer, useRef, useState } from "react";
 import {
   generateSample,
+  SAMPLE_NOW,
   customLens,
   subtreeOf,
   type FsNode,
@@ -23,6 +24,9 @@ import type { Camera } from "@astrolabe/render";
 import { GalaxyCanvas, type GalaxyHandle, type HoverInfo } from "./components/GalaxyCanvas";
 import { AstraDock } from "./components/AstraDock";
 import { createScene, homeIndex, selectionBytes } from "./data";
+import { AstraClient } from "./astra/client";
+import { AgentConnection, type Runner } from "./astra/agent";
+import { ConnectDialog } from "./components/ConnectDialog";
 import { PlanCard, type PlanPhase } from "./components/PlanCard";
 import { applyResults, createDemoExecutor } from "./astra/fsdemo";
 import { buildPlan, type ExecutionLog, type Plan } from "@astrolabe/actions";
@@ -49,6 +53,9 @@ export function App() {
   const [runLog, setRunLog] = useState<ExecutionLog | null>(null);
   const baseNodes = useRef<FsNode[]>([]);
   const [customLensState, setCustomLens] = useState<Lens | null>(null);
+  const astra = useMemo(() => new AstraClient(), []);
+  const [source, setSource] = useState<{ label: string; conn: AgentConnection | null }>({ label: "Amostra · C: (dados de exemplo)", conn: null });
+  const [connectOpen, setConnectOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const galaxy = useRef<GalaxyHandle>(null);
@@ -94,13 +101,27 @@ export function App() {
     now: scene.now,
     dup: scene.dup,
     selection: [...scene.selection].map((i) => scene.tree.nodes[i]!.id),
-    sourceLabel: "Amostra",
+    sourceLabel: source.label,
   });
 
-  const rebuild = (nodes: FsNode[]) => {
+  const runner = (): Runner =>
+    source.conn
+      ? { demo: false, execute: (p, ap) => source.conn!.execute(p, ap), undo: (p, l) => source.conn!.undo(p, l) }
+      : { demo: true, execute: (p, ap) => executor.current!.execute(p, ap), undo: (p, l) => executor.current!.undo(p, l) };
+
+  const loadSource = (conn: AgentConnection | null, label: string, nodes: FsNode[], now: number) => {
+    setPlan(null);
+    setSource({ label, conn });
+    if (!conn) executor.current = createDemoExecutor(nodes);
+    rebuild(nodes, now, true);
+    void astra.setSource(conn ? nodes : null, label, now);
+  };
+
+  const rebuild = (nodes: FsNode[], now: number = scene.now, fresh = false) => {
     nodesRef.current = nodes;
-    const next = createScene(nodes);
-    next.setScale(scene.scale);
+    const next = createScene(nodes, now);
+    next.setScale(fresh ? "log" : scene.scale);
+    if (fresh) setScaleMode("log");
     const lens = builtinLenses.find((l) => l.id === lensId) ?? builtinLenses[0]!;
     next.setLens(lens);
     if (!builtinLenses.some((l) => l.id === lensId)) {
@@ -108,7 +129,7 @@ export function App() {
       setCustomLens(null);
     }
     setScene(next);
-    setTimeout(() => galaxy.current?.redraw(), 0);
+    setTimeout(() => (fresh ? galaxy.current?.flyHome() : galaxy.current?.redraw()), 0);
   };
 
   const showPlan = (p: Plan) => {
@@ -134,10 +155,17 @@ export function App() {
   };
 
   const approvePlan = async (ids: string[]) => {
-    if (!plan || !executor.current) return;
+    if (!plan) return;
     setPhase("running");
     // A aprovação nasce aqui, num clique do usuário; a Astra não tem como criá-la.
-    const log = await executor.current.execute(plan, { planId: plan.id, approvedAt: Date.now(), onlyActionIds: ids });
+    let log: ExecutionLog;
+    try {
+      log = await runner().execute(plan, { planId: plan.id, approvedAt: Date.now(), onlyActionIds: ids });
+    } catch (e) {
+      setPhase("review");
+      say(e instanceof Error ? e.message : "Não consegui executar");
+      return;
+    }
     baseNodes.current = nodesRef.current!;
     setRunLog(log);
     setPhase("done");
@@ -146,8 +174,14 @@ export function App() {
   };
 
   const undoPlan = async () => {
-    if (!plan || !runLog || !executor.current) return;
-    const undone = await executor.current.undo(plan, runLog);
+    if (!plan || !runLog) return;
+    let undone: ExecutionLog;
+    try {
+      undone = await runner().undo(plan, runLog);
+    } catch (e) {
+      say(e instanceof Error ? e.message : "Não consegui desfazer");
+      return;
+    }
     setRunLog(undone);
     rebuild(applyResults(baseNodes.current, plan, undone));
     say("Desfeito: tudo voltou ao lugar");
@@ -292,7 +326,7 @@ export function App() {
           <span className="brand-mark" aria-hidden />
           <div>
             <b>Astrolabe</b>
-            <small>Amostra · C: (dados de exemplo)</small>
+            <small>{source.label}</small>
           </div>
         </div>
 
@@ -323,6 +357,8 @@ export function App() {
         </form>
 
         <div className="group">
+          <button className="chip" onClick={() => setConnectOpen(true)} title="Ver o seu disco de verdade, com o agente local">Conectar PC</button>
+          {source.conn && <button className="chip" onClick={() => loadSource(null, "Amostra · C: (dados de exemplo)", generateSample(), SAMPLE_NOW)} title="Voltar aos dados de exemplo">Amostra</button>}
           <button className="chip" onClick={() => galaxy.current?.flyHome()} title="Voltar ao início">⌂ Início</button>
           <button className="chip" onClick={() => galaxy.current?.fitAll()} title="Ver a galáxia inteira">Tudo</button>
           <button
@@ -445,7 +481,17 @@ export function App() {
         </div>
       )}
 
-      {plan && <PlanCard plan={plan} phase={phase} log={runLog} onPreview={previewPlan} onApprove={(ids) => void approvePlan(ids)} onUndo={() => void undoPlan()} onClose={closePlan} />}
+      {plan && <PlanCard plan={plan} demo={!source.conn} phase={phase} log={runLog} onPreview={previewPlan} onApprove={(ids) => void approvePlan(ids)} onUndo={() => void undoPlan()} onClose={closePlan} />}
+      {connectOpen && (
+        <ConnectDialog
+          onClose={() => setConnectOpen(false)}
+          onLoaded={(conn, root, nodes, note) => {
+            setConnectOpen(false);
+            loadSource(conn, root, nodes, Date.now());
+            say(note);
+          }}
+        />
+      )}
       {toast && <div className="toast glass">{toast}</div>}
 
       {/* tooltip */}
@@ -474,7 +520,7 @@ export function App() {
         <span>{zoom ? `${zoom >= 1 ? zoom.toFixed(1) : zoom.toFixed(3)}×` : ""}</span>
       </div>
 
-      <AstraDock getContext={getContext} onAction={onAstra} />
+      <AstraDock client={astra} getContext={getContext} onAction={onAstra} />
     </div>
   );
 }

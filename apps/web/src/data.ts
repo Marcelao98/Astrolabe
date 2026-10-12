@@ -1,8 +1,8 @@
 import { buildTree, generateSample, SAMPLE_NOW, type FsNode } from "@astrolabe/core";
 import { GalaxyScene } from "@astrolabe/render";
 
-export function createScene(nodes: FsNode[]): GalaxyScene {
-  const scene = new GalaxyScene(buildTree(nodes), SAMPLE_NOW);
+export function createScene(nodes: FsNode[], now: number = SAMPLE_NOW): GalaxyScene {
+  const scene = new GalaxyScene(buildTree(nodes), now);
   scene.openDepth = 99;
   scene.relayout();
   return scene;

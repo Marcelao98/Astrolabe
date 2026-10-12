@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AstraAction, AstraContext, ChatMessage } from "@astrolabe/agents";
 import { AstraAvatar, type AstraMood } from "./AstraAvatar";
 import { AstraClient } from "../astra/client";
 
 interface Props {
+  client: AstraClient;
   getContext(): AstraContext;
   onAction(action: AstraAction): void;
 }
 
 const SUGGESTIONS = ["O que está ocupando mais espaço?", "Mostra meus vídeos", "O que está parado há mais de 2 anos?", "Limpa os duplicados"];
 
-export function AstraDock({ getContext, onAction }: Props) {
-  const client = useMemo(() => new AstraClient(), []);
+export function AstraDock({ client, getContext, onAction }: Props) {
   const [open, setOpen] = useState(true);
   const [mood, setMood] = useState<AstraMood>("happy");
   const [msgs, setMsgs] = useState<ChatMessage[]>([

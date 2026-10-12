@@ -1,3 +1,4 @@
+import type { FsNode } from "@astrolabe/core";
 import { MockProvider, type AstraContext, type AstraEvent, type ChatMessage } from "@astrolabe/agents";
 
 /**
@@ -51,6 +52,22 @@ export class AstraClient {
       this.remote = Promise.resolve(false);
       yield { kind: "text", text: "Perdi a conexão com o meu cérebro na nuvem; vou continuar no modo simples." };
       yield* this.mock.chat({ text, history, ctx });
+    }
+  }
+
+  /** Conta à API (se for o Claude) qual mapa o usuário está vendo, para a Astra enxergar o mesmo. */
+  async setSource(nodes: FsNode[] | null, label: string, now: number): Promise<void> {
+    if (!(await this.isRemote())) return;
+    try {
+      if (!nodes) await fetch("/api/tree", { method: "DELETE" });
+      else
+        await fetch("/api/tree", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nodes, now, label }),
+        });
+    } catch {
+      /* sem API, a Astra simples continua usando o mapa do navegador */
     }
   }
 }
