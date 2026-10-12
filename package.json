@@ -1,0 +1,22 @@
+{
+  "name": "astrolabe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "description": "Um mapa em forma de galáxia para o seu armazenamento, com uma agente de IA que age sobre o que você seleciona.",
+  "scripts": {
+    "dev": "pnpm --filter @astrolabe/web dev",
+    "dev:api": "pnpm --filter @astrolabe/api dev",
+    "dev:agent": "pnpm --filter @astrolabe/local-agent dev",
+    "build": "pnpm --filter @astrolabe/web build",
+    "test": "vitest run",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
